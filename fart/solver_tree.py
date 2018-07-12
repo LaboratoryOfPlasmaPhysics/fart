@@ -8,36 +8,41 @@ import matplotlib.pyplot as plt
 from .derivative import complex_integral_num, complex_integral_num_raw
 
 
-def raw_integral(g, x0, x1, k, n=0, N = 90):
+def integrand_func(f, df, z, n=0, **func_kwargs):
+    ret = -1j * 0.5 / np.pi * z ** n * df(z, **func_kwargs) / f(z, **func_kwargs)
+    return ret
+
+
+def raw_integral(g, x0, x1, n=0, N = 90, **func_kwargs):
     """ calculate a raw integral of the complex function
     Should be faster than scipy.quad"""
     xs = np.linspace(x0,x1,N)
-    value = np.sum(g(xs, k,n))
+    value = np.sum(g(xs, n, **func_kwargs))
     return [value*(x1-x0)/N]
 
 
-def quad_integral(g, a, b, k,n=0):
-    realvalue = quad(lambda x: np.real(g(x,k,n)), a, b, epsabs = 1e-8)[0]
-    imagvalue = quad(lambda x: np.imag(g(x,k,n)), a, b, epsabs = 1e-8)[0]
+def quad_integral(g, a, b, n=0, **func_kwargs):
+    realvalue = quad(lambda x: np.real(g(x, n, **func_kwargs)), a, b, epsabs = 1e-8)[0]
+    imagvalue = quad(lambda x: np.imag(g(x, n, **func_kwargs)), a, b, epsabs = 1e-8)[0]
     value = realvalue + 1.j*imagvalue
     return [value]
 
 
 
-def complex_integral(g, rect, k, integr = quad_integral, n=0):
+def complex_integral(g, f, df, rect, integr = quad_integral, n=0, **func_kwargs):
     """Contour integral on a box of size L"""
     x0, y0, x1, y1 = rect
 
-    def real_integrand(x, k, n):
-        g1 = g(x + 1j*y0, k, n)
-        g2 = g(x + 1j*y1, k, n)
-        return  g1 - g2
+    def real_integrand(x, n, **func_kwargs):
+        g1 = g(f, df, x + 1j*y0, n, **func_kwargs)
+        g2 = g(f, df, x + 1j*y1, n, **func_kwargs)
+        return g1 - g2
 
-    def imaginary_integrand(y, k, n):
-        return g(x1 + 1j*y, k, n)- g(x0 + 1j*y, k, n)
+    def imaginary_integrand(y, n, **func_kwargs):
+        return g(f, df, x1 + 1j*y, n, **func_kwargs) - g(f, df, x0 + 1j*y, n, **func_kwargs)
 
-    integral1 = integr(real_integrand, x0, x1, k, n )
-    integral2 = integr(imaginary_integrand, y0, y1, k, n)
+    integral1 = integr(real_integrand, x0, x1, n, **func_kwargs)
+    integral2 = integr(imaginary_integrand, y0, y1, n, **func_kwargs)
 
     # val = r1 - I2 + j ( I1 + R2) = 1 + j 2
     val = integral1[0] + 1j*integral2[0]
@@ -96,13 +101,13 @@ def dist_cpx(c1, c2):
 
 class SolverNode(Node):
 
-    def __init__(self, parent, domain, k, function, max_depth,
-                 deriv_function = None):
+    def __init__(self, parent, domain, function, max_depth,
+                 deriv_function = None, **func_kwargs):
         self.rect = domain
         self.max_depth = max_depth
         self.function = function
         self.has_zero = False
-        self.k = k
+        self.func_kwargs = func_kwargs
         self.parent = parent
         self.deriv_function = deriv_function
         self.error_domains = None
@@ -112,12 +117,11 @@ class SolverNode(Node):
 
 
     def getinstance(self, rect):
-
         return SolverNode(self, rect,
-                          self.k,
                           self.function,
                           self.max_depth,
-                          deriv_function=self.deriv_function)
+                          deriv_function=self.deriv_function,
+                          **self.func_kwargs)
 
 
     def has_converged(self):
@@ -130,17 +134,20 @@ class SolverNode(Node):
 
         if self.deriv_function is not None:
 
-            def integrand_func(z,k,n=n):
-                ret = -1j*0.5/np.pi*z**n*self.deriv_function(z, k)/self.function(z, k)
-                return ret
+            #def integrand_func(z, n=n, **func_kwargs):
+            #    ret = -1j*0.5/np.pi*z**n*self.deriv_function(z, **func_kwargs)/self.function(z, **func_kwargs)
+            #    return ret
 
-            return complex_integral(integrand_func, rect, self.k, integr=integr_function, n=n)
+            return complex_integral(integrand_func, self.function, self.deriv_function,
+                                    rect, integr=integr_function, n=n, **self.func_kwargs)
 
         else:
             if integr_function == raw_integral:
-                return complex_integral_num_raw(self.function, rect, self.k, n=n)
+                return complex_integral_num_raw(self.function,
+                                                rect, n=n, **self.func_kwargs)
 
-            return complex_integral_num(self.function, rect, self.k, integr=integr_function, n=n)
+            return complex_integral_num(self.function,
+                                        rect, integr=integr_function, n=n, **self.func_kwargs)
 
 
 
@@ -218,44 +225,30 @@ class SolverNode(Node):
 
 class Solver(QuadTree):
 
-    def __init__(self, function, domain, k, max_depth=10, deriv_function=None):
+    def __init__(self, function, domain, max_depth=10, deriv_function=None, **func_kwargs):
 
 
         self.max_depth = max_depth
         self.function = function
         self.deriv_function = deriv_function
-        self.k = k
+        self.func_kwargs = func_kwargs
 
         self.domain = domain
 
-        self.root = SolverNode(None, self.domain, self.k, self.function,
-                               self.max_depth, deriv_function=self.deriv_function)
+        self.root = SolverNode(None, self.domain, self.function,
+                               self.max_depth, deriv_function=self.deriv_function, **func_kwargs)
 
 
 
-    def solve(self, methode = "integral"):
+    def solve(self):
 
         super().__init__(self.root, self.max_depth)
 
-        if methode == "integral":
-            self.zeros = np.asarray([z.integ(z.rect, n=1, integr_function=quad_integral) for z in self.leaves])
-            for i,leave in enumerate(self.leaves):
-                leave.zero = self.zeros[i]
+        self.zeros = np.asarray([z.integ(z.rect, n=1, integr_function=quad_integral) for z in self.leaves])
+        for i, leave in enumerate(self.leaves):
+            leave.zero = self.zeros[i]
 
-        elif methode == "cg":
 
-            wrap = gs.wrapper(self.function, k=self.k)
-
-            self.zeros = np.zeros(len(self.leaves), dtype="c8")
-
-            for i, leave in enumerate(self.leaves):
-                x0 = [(leave.rect[0] + leave.rect[2]) / 2, (leave.rect[1] + leave.rect[3]) / 2]
-                bounds = [[leave.rect[0], leave.rect[2]], [leave.rect[1], leave.rect[3]]]
-
-                v = wrap.solve(x0, bounds=bounds)[0]
-
-                self.zeros[i] = v[0] + 1.j*v[1]
-                leave.zero = self.zeros[i]
 
 
 
