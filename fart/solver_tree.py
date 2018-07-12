@@ -113,6 +113,10 @@ class SolverNode(Node):
         self.error_domains = None
         self.errors = None
         self.precision = None
+
+        self.tolerance = 0.01
+
+
         super().__init__(self.parent, domain)
 
 
@@ -156,7 +160,7 @@ class SolverNode(Node):
         error =   self.precision[0]
         round_val = self.precision[1]
         val = self.precision[2]
-        return (error > 0.01 and round_val <= 1) or ( val < -0.01)
+        return (error > self.tolerance and round_val <= 1) or ( val < -self.tolerance)
 
 
     def no_zero(self):
@@ -178,6 +182,16 @@ class SolverNode(Node):
 
         return [ x0 - factor*Lx, y0 - factor*Ly, x1 + factor*Lx, y1 + factor*Ly ]
 
+    def is_nan_corners(self):
+        """Evaluate the function in the corners, and return is all and any is nan"""
+        x0, y0, x1, y1 = self.rect
+        c_lower_left = self.function(x0 + y0*1.j, **self.func_kwargs)
+        c_upper_left = self.function(x1 + y0*1.j, **self.func_kwargs)
+        c_lower_right = self.function(x0 + y1*1.j, **self.func_kwargs)
+        c_upper_right = self.function(x1 + y1*1.j, **self.func_kwargs)
+
+        is_nan_corners = np.isnan([c_lower_left, c_lower_right, c_upper_left, c_upper_right])
+        return all(is_nan_corners), any(is_nan_corners)
 
 
     def needs_subdivision(self, rect):
@@ -189,9 +203,19 @@ class SolverNode(Node):
            # self.has_zero = True
             return dont_subdivide
 
-        val = self.integ(rect, integr_function=raw_integral)
-        if np.isnan(np.real(val)):
+        is_all_corner_nan, is_any_corner_nan = self.is_nan_corners()
+
+        if is_all_corner_nan:
+            # print("All corners are Nan ! Depth is :", self.depth)
             return dont_subdivide
+        if is_any_corner_nan:
+            # print("Some (but not all) corners are Nan ! Depth is :", self.depth)
+            return subdivide
+
+        val = self.integ(rect, integr_function=raw_integral)
+
+        if np.isnan(np.real(val)):
+            return subdivide
 
         round_val = int(np.round(np.real(val)))
         error = abs(round_val - val.real)
@@ -202,6 +226,10 @@ class SolverNode(Node):
             rect = self.growth(rect)
             self.rect = rect
             val = self.integ(rect, integr_function=quad_integral)
+            # print("quad integral, depth is :", self.depth)
+            if np.isnan(np.real(val)):
+                return subdivide
+
             round_val = int(np.round(np.real(val)))
             error = abs(round_val - val.real)
             self.precision = (error, round_val, val.real)
@@ -347,31 +375,27 @@ def grid(w_domain, N):
 
 
 
-def plot_tree(tree, function, w_domain,  N = 512, filename=None, **func_kwargs):
+def plot_tree(tree, function, w_domain,  N = 512, vmin=None, vmax=None, filename=None, **func_kwargs):
     """Plot the functions, the rectangles and the solutions"""
 
     ww = grid(w_domain, N)
     f, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 5))
-    # ax.imshow(np.abs(values), origin='lower',vmin=0, vmax=1)
+
 
     values = function(ww, **func_kwargs)
-    im = ax.pcolormesh(ww.real, ww.imag, np.abs(values), vmin=0, vmax=1)  # , vmax=0.5)
+    im = ax.pcolormesh(ww.real, ww.imag, np.abs(values))
 
     ax.set_title("depth = %d" % (tree.max_depth))
-    ax.set_xlabel(r"$\omega_r$")
-    ax.set_ylabel(r"$\omega_i$")
 
     ax.set_xlim((w_domain[0], w_domain[2]))
     ax.set_ylim((w_domain[1], w_domain[3]))
 
     for z in tree.allnodes:
         r = z.rect
-        # print("node ; ",z.has_zero)
         rect = Rectangle((r[0],r[1]), (r[2]-r[0]), (r[3]-r[1]), ec="k", fc="none", ls='--', lw=0.2)
         ax.add_patch(rect)
 
     for z in tree.leaves:
-        # print(z.has_zero)
         if z.has_zero:
             r = z.rect
             rect = Rectangle((r[0], r[1]), (r[2] - r[0]), (r[3] - r[1]), ec="r", fc="none", ls='-', lw=1)
