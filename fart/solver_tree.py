@@ -347,14 +347,14 @@ def grid(w_domain, N):
 
 
 
-def plot_tree(tree, function, w_domain, k, N = 512, filename=None):
+def plot_tree(tree, function, w_domain,  N = 512, filename=None, **func_kwargs):
     """Plot the functions, the rectangles and the solutions"""
 
     ww = grid(w_domain, N)
     f, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 5))
     # ax.imshow(np.abs(values), origin='lower',vmin=0, vmax=1)
 
-    values = function(ww, k)
+    values = function(ww, **func_kwargs)
     im = ax.pcolormesh(ww.real, ww.imag, np.abs(values), vmin=0, vmax=1)  # , vmax=0.5)
 
     ax.set_title("depth = %d" % (tree.max_depth))
