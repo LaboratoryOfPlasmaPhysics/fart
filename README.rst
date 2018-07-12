@@ -6,8 +6,8 @@ fart
 .. image:: https://img.shields.io/pypi/v/fart.svg
         :target: https://pypi.python.org/pypi/fart
 
-.. image:: https://img.shields.io/travis/nicolasaunai/fart.svg
-        :target: https://travis-ci.org/nicolasaunai/fart
+.. image:: https://img.shields.io/travis/LaboratoryOfPlasmaPhysics/fart.svg
+        :target: https://travis-ci.org/LaboratoryOfPlasmaPhysics/fart
 
 .. image:: https://readthedocs.org/projects/fart/badge/?version=latest
         :target: https://fart.readthedocs.io/en/latest/?badge=latest
