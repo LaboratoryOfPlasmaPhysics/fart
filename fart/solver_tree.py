@@ -12,8 +12,11 @@ def integrand_func(f, df, z, n=0, **func_kwargs):
     ret = -1j * 0.5 / np.pi * z ** n * df(z, **func_kwargs) / f(z, **func_kwargs)
     return ret
 
+def integrand_func_optimized(dummy, df_over_f, z, n=0, **func_kwargs):
+    ret = -1j * 0.5 / np.pi * z ** n * df_over_f(z, **func_kwargs)
+    return ret
 
-def raw_integral(g, x0, x1, n=0, N = 90, **func_kwargs):
+def raw_integral(g, x0, x1, n=0, N = 100, **func_kwargs):
     """ calculate a raw integral of the complex function
     Should be faster than scipy.quad"""
     xs = np.linspace(x0,x1,N)
@@ -29,7 +32,7 @@ def quad_integral(g, a, b, n=0, **func_kwargs):
 
 
 
-def complex_integral(g, f, df, rect, integr = quad_integral, n=0, **func_kwargs):
+def complex_integral(g, f, df, rect, integr = raw_integral, n=0, **func_kwargs):
     """Contour integral on a box of size L"""
     x0, y0, x1, y1 = rect
 
@@ -39,7 +42,9 @@ def complex_integral(g, f, df, rect, integr = quad_integral, n=0, **func_kwargs)
         return g1 - g2
 
     def imaginary_integrand(y, n, **func_kwargs):
-        return g(f, df, x1 + 1j*y, n, **func_kwargs) - g(f, df, x0 + 1j*y, n, **func_kwargs)
+        g1 = g(f, df, x1 + 1j * y, n, **func_kwargs)
+        g2 = g(f, df, x0 + 1j * y, n, **func_kwargs)
+        return  g1 - g2
 
     integral1 = integr(real_integrand, x0, x1, n, **func_kwargs)
     integral2 = integr(imaginary_integrand, y0, y1, n, **func_kwargs)
@@ -102,7 +107,7 @@ def dist_cpx(c1, c2):
 class SolverNode(Node):
 
     def __init__(self, parent, domain, function, max_depth,
-                 deriv_function = None, **func_kwargs):
+                 deriv_function = None, df_over_f = False, **func_kwargs):
         self.rect = domain
         self.max_depth = max_depth
         self.function = function
@@ -115,7 +120,7 @@ class SolverNode(Node):
         self.precision = None
 
         self.tolerance = 0.01
-
+        self.df_over_f = df_over_f
 
         super().__init__(self.parent, domain)
 
@@ -125,6 +130,7 @@ class SolverNode(Node):
                           self.function,
                           self.max_depth,
                           deriv_function=self.deriv_function,
+                          df_over_f = self.df_over_f,
                           **self.func_kwargs)
 
 
@@ -138,11 +144,13 @@ class SolverNode(Node):
 
         if self.deriv_function is not None:
 
-            #def integrand_func(z, n=n, **func_kwargs):
-            #    ret = -1j*0.5/np.pi*z**n*self.deriv_function(z, **func_kwargs)/self.function(z, **func_kwargs)
-            #    return ret
+            if self.df_over_f:
+                # If the attribute df_over_f is defined and True, use the integrand_func_optimized
+                temp_integrand_func = integrand_func_optimized
+            else:
+                temp_integrand_func = integrand_func
 
-            return complex_integral(integrand_func, self.function, self.deriv_function,
+            return complex_integral(temp_integrand_func, self.function, self.deriv_function,
                                     rect, integr=integr_function, n=n, **self.func_kwargs)
 
         else:
@@ -199,6 +207,9 @@ class SolverNode(Node):
         subdivide = True
         dont_subdivide = False
 
+        self.precision = (None, None, None)
+
+
         if self.depth == self.max_depth:
            # self.has_zero = True
             return dont_subdivide
@@ -253,7 +264,9 @@ class SolverNode(Node):
 
 class Solver(QuadTree):
 
-    def __init__(self, function, domain, max_depth=10, deriv_function=None, **func_kwargs):
+    def __init__(self, function, domain, max_depth=10, deriv_function=None,
+                 df_over_f = False,
+                 **func_kwargs):
 
 
         self.max_depth = max_depth
@@ -262,13 +275,17 @@ class Solver(QuadTree):
         self.func_kwargs = func_kwargs
 
         self.domain = domain
+        self.df_over_f = df_over_f
 
-        self.root = SolverNode(None, self.domain, self.function,
-                               self.max_depth, deriv_function=self.deriv_function, **func_kwargs)
+        self.func_kwargs = func_kwargs
 
 
 
     def solve(self):
+        self.root = SolverNode(None, self.domain, self.function,
+                               self.max_depth, deriv_function=self.deriv_function,
+                               df_over_f=self.df_over_f,
+                               **self.func_kwargs)
 
         super().__init__(self.root, self.max_depth)
 
@@ -383,7 +400,7 @@ def plot_tree(tree, function, w_domain,  N = 512, vmin=None, vmax=None, filename
 
 
     values = function(ww, **func_kwargs)
-    im = ax.pcolormesh(ww.real, ww.imag, np.abs(values))
+    im = ax.pcolormesh(ww.real, ww.imag, np.abs(values), vmin = vmin, vmax = vmax)
 
     ax.set_title("depth = %d" % (tree.max_depth))
 
