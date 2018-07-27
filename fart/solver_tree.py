@@ -12,7 +12,7 @@ def integrand_func(f, df, z, n=0, **func_kwargs):
     ret = -1j * 0.5 / np.pi * z ** n * df(z, **func_kwargs) / f(z, **func_kwargs)
     return ret
 
-def integrand_func_optimized(dummy, df_over_f, z, n=0, **func_kwargs):
+def integrand_func_optimized(df_over_f,dummy, z, n=0, **func_kwargs):
     ret = -1j * 0.5 / np.pi * z ** n * df_over_f(z, **func_kwargs)
     return ret
 
@@ -25,8 +25,8 @@ def raw_integral(g, x0, x1, n=0, N = 100, **func_kwargs):
 
 
 def quad_integral(g, a, b, n=0, **func_kwargs):
-    realvalue = quad(lambda x: np.real(g(x, n, **func_kwargs)), a, b, epsabs = 1e-8)[0]
-    imagvalue = quad(lambda x: np.imag(g(x, n, **func_kwargs)), a, b, epsabs = 1e-8)[0]
+    realvalue = quad(lambda x: np.real(g(x, n, **func_kwargs)), a, b, epsrel = 1e-6)[0]
+    imagvalue = quad(lambda x: np.imag(g(x, n, **func_kwargs)), a, b, epsrel = 1e-6)[0]
     value = realvalue + 1.j*imagvalue
     return [value]
 
@@ -142,14 +142,15 @@ class SolverNode(Node):
     def integ(self, rect, n=0, integr_function = raw_integral):
         # TODO big shit happens if deriv_function is None
 
-        if self.deriv_function is not None:
+        if self.deriv_function is not None and self.df_over_f is False:
+            temp_integrand_func = integrand_func
 
-            if self.df_over_f:
+            return complex_integral(temp_integrand_func, self.function, self.deriv_function,
+                                    rect, integr=integr_function, n=n, **self.func_kwargs)
+
+        if self.deriv_function is None and self.df_over_f is True:
                 # If the attribute df_over_f is defined and True, use the integrand_func_optimized
-                temp_integrand_func = integrand_func_optimized
-            else:
-                temp_integrand_func = integrand_func
-
+            temp_integrand_func = integrand_func_optimized
             return complex_integral(temp_integrand_func, self.function, self.deriv_function,
                                     rect, integr=integr_function, n=n, **self.func_kwargs)
 
